@@ -24,8 +24,10 @@ const config: AppConfig = {
 const { app, services } = createApp(config);
 let server: Server;
 let baseUrl = "";
-const introReply =
-  "Puedo crear stickers desde cero, convertir una foto en sticker o editar un sticker existente. También puedes mandarme una imagen con instrucciones en el mismo mensaje. Ejemplos: 'haz un sticker de mi perro con texto Firulais', 'convierte esta foto en sticker con fondo transparente', 'edita este sticker y ponle lentes negros'.";
+const exampleBullets =
+  "- Crea desde cero: 'haz un sticker de mi perro con texto Firulais'\n- Convierte una foto: manda una imagen con instrucciones como 'convierte en sticker con fondo transparente'\n- Edita un sticker: manda el sticker y dime qué cambiar, como 'ponle lentes negros'";
+const introReply = `Hola, soy Sticky y te puedo ayudar a crear un sticker con AI en segundos.\n\n${exampleBullets}`;
+const offTopicReply = `Solo puedo ayudar a crear stickers. Aquí tienes algunas ideas:\n\n${exampleBullets}`;
 const generatingReply = "Estoy generando tu sticker. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.";
 const editingReply = "Estoy editando tu sticker. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.";
 const imageReply = "Estoy creando tu sticker con la imagen. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.";
@@ -58,6 +60,14 @@ describe("Sticky WhatsApp bot e2e", () => {
 
     assert.equal(body.ok, true);
     assert.deepEqual(body.replies, [introReply]);
+    assert.equal(body.conversation.state, "waiting_for_brand_or_theme");
+  });
+
+  test("redirects off-topic requests back to stickers", async () => {
+    const body = await postWebhook({ from: "e2e-off-topic", text: "¿Cuál es el clima de hoy?" });
+
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.replies, [offTopicReply]);
     assert.equal(body.conversation.state, "waiting_for_brand_or_theme");
   });
 

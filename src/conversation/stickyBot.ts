@@ -82,7 +82,7 @@ export class StickyBot {
     if (isUnsafeOrOffTopic(text)) {
       const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
       return this.reply(userId, session, [
-        `Solo puedo ayudar a crear stickers. ${introMessage()}`
+        offTopicMessage()
       ]);
     }
 
@@ -324,12 +324,18 @@ function hasEnoughStickerDetail(text: string): boolean {
   return /sticker|stickers|calcomania|dibujo|logo|meme|texto|estilo|personaje|mascota/.test(normalized) && words.length >= 2;
 }
 
+const exampleBullets = [
+  "- Crea desde cero: 'haz un sticker de mi perro con texto Firulais'",
+  "- Convierte una foto: manda una imagen con instrucciones como 'convierte en sticker con fondo transparente'",
+  "- Edita un sticker: manda el sticker y dime qué cambiar, como 'ponle lentes negros'"
+].join("\n");
+
 function introMessage(): string {
-  return [
-    "Puedo crear stickers desde cero, convertir una foto en sticker o editar un sticker existente.",
-    "También puedes mandarme una imagen con instrucciones en el mismo mensaje.",
-    "Ejemplos: 'haz un sticker de mi perro con texto Firulais', 'convierte esta foto en sticker con fondo transparente', 'edita este sticker y ponle lentes negros'."
-  ].join(" ");
+  return `Hola, soy Sticky y te puedo ayudar a crear un sticker con AI en segundos.\n\n${exampleBullets}`;
+}
+
+function offTopicMessage(): string {
+  return `Solo puedo ayudar a crear stickers. Aquí tienes algunas ideas:\n\n${exampleBullets}`;
 }
 
 function generatingMessage(mode: "generating" | "editing" | "image"): string {

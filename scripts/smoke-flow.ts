@@ -32,10 +32,8 @@ const bot = new StickyBot({
 
 const from = "demo-whatsapp-user";
 const messages = [
-  "Hi",
-  "Tacos Don Rafa",
-  "Funny Mexican meme style with cute tacos",
-  "Hoy toca pastor, Sin salsa no hay paraiso, Yo invito tu pagas"
+  "Hola",
+  "Hazme un sticker de basquetbol estilo graffiti con texto Jordan"
 ];
 
 await storage.ensureOutputDir();

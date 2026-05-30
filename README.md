@@ -1,6 +1,6 @@
 # Sticky
 
-Sticky is a WhatsApp-first bot prototype that generates AI sticker packs for businesses and consumers. A user messages the bot with a brand or theme, a style, and three phrases. Sticky generates one square sticker per phrase, converts each image to WhatsApp-ready WebP, and returns download links.
+Sticky is a WhatsApp-first bot prototype that generates AI stickers for businesses and consumers. A user sends an open sticker request, Sticky generates one square sticker, converts it to WhatsApp-ready WebP, sends it through Kapso, and returns a download link as backup.
 
 This project intentionally has no landing page, database, authentication, payments, analytics, or user accounts.
 
@@ -12,7 +12,7 @@ This project intentionally has no landing page, database, authentication, paymen
 - OpenAI image generation when configured
 - Local mock image generation when no API key is present
 - Sharp WebP sticker conversion
-- Kapso WhatsApp text sending service
+- Kapso WhatsApp text and sticker sending service
 
 ## Project Structure
 
@@ -70,30 +70,22 @@ Send these one by one with the same `from` value:
 ```bash
 curl -X POST http://localhost:3000/webhooks/whatsapp \
   -H 'Content-Type: application/json' \
-  -d '{"from":"demo-user","text":"Hi"}'
+  -d '{"from":"demo-user","text":"Hola"}'
 
 curl -X POST http://localhost:3000/webhooks/whatsapp \
   -H 'Content-Type: application/json' \
-  -d '{"from":"demo-user","text":"Tacos Don Rafa"}'
-
-curl -X POST http://localhost:3000/webhooks/whatsapp \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"demo-user","text":"Funny Mexican meme style with cute tacos"}'
-
-curl -X POST http://localhost:3000/webhooks/whatsapp \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"demo-user","text":"Hoy toca pastor, Sin salsa no hay paraiso, Yo invito tu pagas"}'
+  -d '{"from":"demo-user","text":"Hazme un sticker de basquetbol estilo graffiti con texto Jordan"}'
 ```
 
 Expected bot flow:
 
 ```text
-Bot: What brand or theme do you want stickers for?
-Bot: What visual style do you want?
-Bot: Send me three sticker phrases separated by commas.
-Bot: Generating your stickers.
-Bot: Your stickers are ready: <three links>
+Bot: ¿Cómo quieres el sticker? Dime el tema, estilo y texto si debe llevar texto.
+Bot: Estoy generando tu sticker.
+Bot: Tu sticker está listo: <link>
 ```
+
+If the user asks unrelated questions or tries prompt injection, Sticky refuses and asks for a sticker description.
 
 ## AI Image Generation
 
@@ -117,8 +109,7 @@ To send replies through Kapso:
 KAPSO_ENABLED=true
 KAPSO_API_KEY=...
 KAPSO_API_BASE_URL=https://api.kapso.ai
-KAPSO_SEND_MESSAGE_PATH=/whatsapp/messages
-KAPSO_WHATSAPP_FROM=...
+KAPSO_SEND_MESSAGE_URL=https://api.kapso.ai/meta/whatsapp/v24.0/YOUR_PHONE_NUMBER_ID/messages
 ```
 
 If your Kapso workspace uses a different send-message URL, set `KAPSO_SEND_MESSAGE_URL` to the full URL.

@@ -1,4 +1,3 @@
-import { parseStickerPhrases } from "./phraseParser.js";
 import type { PromptGenerator } from "../ai/promptGenerator.js";
 import type { ConversationStateManager } from "./stateManager.js";
 import type { ImageGenerationService } from "../images/imageGenerationService.js";
@@ -26,135 +25,94 @@ export class StickyBot {
     if (text.toLowerCase() === "restart" || text.toLowerCase() === "new") {
       this.deps.state.reset(message.from);
       return this.reply(message.from, this.deps.state.setState(message.from, "waiting_for_brand_or_theme"), [
-        "¿Para qué marca o tema quieres los stickers?"
+        "Listo. Describe el sticker que quieres generar."
       ]);
     }
 
     switch (session.state) {
       case "initial_message_received":
-        return this.handleInitialMessage(message.from);
       case "waiting_for_brand_or_theme":
-        return this.handleBrand(message.from, text);
       case "waiting_for_sticker_style":
-        return this.handleStyle(message.from, text);
       case "waiting_for_sticker_phrases":
-        return this.handlePhrases(message.from, text);
-      case "generating_stickers":
-        return this.reply(message.from, session, ["Todavía estoy generando tus stickers. Te mando los links aquí cuando estén listos."]);
       case "completed":
-        this.deps.state.reset(message.from);
-        return this.handleInitialMessage(message.from);
+        return this.handleOpenStickerPrompt(message.from, text);
+      case "generating_stickers":
+        return this.reply(message.from, session, ["Todavía estoy generando tu sticker. Te lo mando aquí cuando esté listo."]);
     }
   }
 
-  private async handleInitialMessage(userId: string): Promise<BotResponse> {
-    const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
-    return this.reply(userId, session, ["¿Para qué marca o tema quieres los stickers?"]);
-  }
+  private async handleOpenStickerPrompt(userId: string, text: string): Promise<BotResponse> {
+    if (isUnsafeOrOffTopic(text)) {
+      const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
+      return this.reply(userId, session, [
+        "Solo puedo ayudar a crear stickers. Describe el sticker que quieres, por ejemplo: 'un taco feliz estilo meme con texto Hoy toca pastor'."
+      ]);
+    }
 
-  private async handleBrand(userId: string, text: string): Promise<BotResponse> {
-    if (!text) {
-      const session = this.deps.state.getOrCreate(userId);
-      return this.reply(userId, session, ["Mándame la marca o el tema para este paquete de stickers."]);
+    if (!hasEnoughStickerDetail(text)) {
+      const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
+      return this.reply(userId, session, [
+        "¿Cómo quieres el sticker? Dime el tema, estilo y texto si debe llevar texto."
+      ]);
     }
 
     const session = this.deps.state.update(userId, {
       brandOrTheme: text,
-      state: "waiting_for_sticker_style"
-    });
-    return this.reply(userId, session, ["¿Qué estilo visual quieres?"]);
-  }
-
-  private async handleStyle(userId: string, text: string): Promise<BotResponse> {
-    if (!text) {
-      const session = this.deps.state.getOrCreate(userId);
-      return this.reply(userId, session, ["Descríbeme el estilo visual que quieres para los stickers."]);
-    }
-
-    const session = this.deps.state.update(userId, {
-      style: text,
-      state: "waiting_for_sticker_phrases"
-    });
-    return this.reply(userId, session, ["Mándame tres frases para los stickers, separadas por comas."]);
-  }
-
-  private async handlePhrases(userId: string, text: string): Promise<BotResponse> {
-    const phrases = parseStickerPhrases(text);
-    if (phrases.length !== 3) {
-      const session = this.deps.state.getOrCreate(userId);
-      return this.reply(userId, session, ["Mándame exactamente tres frases separadas por comas."]);
-    }
-
-    let session = this.deps.state.update(userId, {
-      phrases,
+      style: undefined,
+      phrases: undefined,
       state: "generating_stickers"
     });
 
-    const generatingReply = "Estoy generando tus stickers.";
+    const generatingReply = "Estoy generando tu sticker.";
     await this.sendText(userId, generatingReply);
 
-    try {
-      const stickers = await this.generateStickerPack(userId, session);
-      session = this.deps.state.update(userId, { state: "completed" });
-      const links = stickers.map((sticker, index) => `${index + 1}. ${sticker.phrase}: ${sticker.url}`).join("\n");
-      const readyReply = `Tus stickers están listos:\n${links}`;
+    void this.generateAndSendSingleSticker(userId, text).catch((error) => {
+      console.error("Sticker generation failed", error);
+    });
 
-      for (const sticker of stickers) {
-        try {
-          await this.deps.kapso.sendStickerLink(userId, sticker.url);
-        } catch (error) {
-          console.error(`Sticker send failed for ${sticker.url}`, error);
-        }
+    return {
+      replies: [generatingReply],
+      stickers: [],
+      conversation: session
+    };
+  }
+
+  private async generateAndSendSingleSticker(userId: string, userPrompt: string): Promise<void> {
+    try {
+      console.log(`[sticky] generating sticker for=${userId}`);
+      const sticker = await this.generateSingleSticker(userId, userPrompt);
+      console.log(`[sticky] sticker generated for=${userId} url=${sticker.url}`);
+      this.deps.state.update(userId, { state: "completed" });
+
+      try {
+        await this.deps.kapso.sendStickerLink(userId, sticker.url);
+      } catch (error) {
+        console.error(`Sticker send failed for ${sticker.url}`, error);
       }
 
-      await this.sendText(userId, readyReply);
-
-      return {
-        replies: [generatingReply, readyReply],
-        stickers,
-        conversation: session
-      };
+      await this.sendText(userId, `Tu sticker está listo: ${sticker.url}`);
+      console.log(`[sticky] sticker flow completed for=${userId}`);
     } catch (error) {
       console.error("Sticker generation failed", error);
-      session = this.deps.state.update(userId, { state: "waiting_for_sticker_phrases" });
-      const failureReply = "Algo salió mal al generar los stickers. Mándame otra vez las tres frases para intentarlo de nuevo.";
-      await this.sendText(userId, failureReply);
-
-      return {
-        replies: [generatingReply, failureReply],
-        stickers: [],
-        conversation: session
-      };
+      this.deps.state.update(userId, { state: "waiting_for_brand_or_theme" });
+      await this.sendText(userId, "Algo salió mal al generar el sticker. Mándame tu idea otra vez para intentarlo de nuevo.");
     }
   }
 
-  private async generateStickerPack(userId: string, session: ConversationSession): Promise<StoredSticker[]> {
-    if (!session.brandOrTheme || !session.style || !session.phrases) {
-      throw new Error("Conversation is missing brand, style, or phrases.");
-    }
-
-    const prompts = this.deps.promptGenerator.buildStickerPrompts({
-      brandOrTheme: session.brandOrTheme,
-      style: session.style,
-      phrases: session.phrases
+  private async generateSingleSticker(userId: string, userPrompt: string): Promise<StoredSticker> {
+    const prompt = this.deps.promptGenerator.buildOpenStickerPrompt(userPrompt);
+    const image = await this.deps.imageGeneration.generate(prompt);
+    const webp = await this.deps.stickerConversion.toWhatsAppSticker(image);
+    const sticker = await this.deps.storage.saveSticker({
+      userId,
+      index: 0,
+      phrase: prompt.phrase,
+      prompt: prompt.prompt,
+      webp
     });
 
-    const stickers: StoredSticker[] = [];
-    for (const [index, prompt] of prompts.entries()) {
-      const image = await this.deps.imageGeneration.generate(prompt);
-      const webp = await this.deps.stickerConversion.toWhatsAppSticker(image);
-      const stored = await this.deps.storage.saveSticker({
-        userId,
-        index,
-        phrase: prompt.phrase,
-        prompt: prompt.prompt,
-        webp
-      });
-      stickers.push(stored);
-    }
-
-    await this.deps.storage.saveManifest(userId, stickers);
-    return stickers;
+    await this.deps.storage.saveManifest(userId, [sticker]);
+    return sticker;
   }
 
   private async reply(
@@ -177,4 +135,71 @@ export class StickyBot {
   private async sendText(userId: string, text: string): Promise<void> {
     await this.deps.kapso.sendText(userId, text);
   }
+}
+
+function hasEnoughStickerDetail(text: string): boolean {
+  const normalized = normalize(text);
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const isGreetingOnly = /^(hola|hey|buenas|hi|hello|que tal|buenos dias|buenas tardes|buenas noches)$/.test(normalized);
+
+  if (isGreetingOnly) {
+    return false;
+  }
+
+  if (words.length >= 4) {
+    return true;
+  }
+
+  return /sticker|stickers|calcomania|dibujo|logo|meme|texto|estilo|personaje|mascota/.test(normalized) && words.length >= 2;
+}
+
+function isUnsafeOrOffTopic(text: string): boolean {
+  const normalized = normalize(text);
+  const promptInjection = [
+    "ignora las instrucciones",
+    "ignora instrucciones",
+    "ignore previous",
+    "ignore all",
+    "system prompt",
+    "developer message",
+    "prompt injection",
+    "jailbreak",
+    "actua como",
+    "actúa como",
+    "revela tu prompt",
+    "muestra tu prompt"
+  ];
+
+  if (promptInjection.some((phrase) => normalized.includes(phrase))) {
+    return true;
+  }
+
+  const unrelated = [
+    "distancia del sol",
+    "recordatorio",
+    "recuerdame",
+    "recuérdame",
+    "programa una alarma",
+    "agenda",
+    "clima",
+    "capital de",
+    "codigo en",
+    "código en",
+    "hazme una app",
+    "resuelve",
+    "cuanto es",
+    "cuánto es"
+  ];
+
+  return unrelated.some((phrase) => normalized.includes(phrase));
+}
+
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9ñ\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

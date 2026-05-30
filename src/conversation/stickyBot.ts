@@ -157,7 +157,7 @@ export class StickyBot {
     const generatingReply = mode === "edit" ? "Estoy editando tu sticker." : "Estoy creando tu sticker con la imagen.";
     await this.sendText(userId, generatingReply);
 
-    void this.generateAndSendSingleSticker(userId, prompt).catch((error) => {
+    void this.generateAndSendSingleSticker(userId, prompt, current.sourceMedia).catch((error) => {
       console.error("Sticker generation failed", error);
     });
 
@@ -168,10 +168,11 @@ export class StickyBot {
     };
   }
 
-  private async generateAndSendSingleSticker(userId: string, userPrompt: string): Promise<void> {
+  private async generateAndSendSingleSticker(userId: string, userPrompt: string, sourceMedia?: InboundMedia): Promise<void> {
     try {
-      console.log(`[sticky] generating sticker for=${userId}`);
-      const sticker = await this.generateSingleSticker(userId, userPrompt);
+      const referenceStatus = sourceMedia?.url ? "media-url" : sourceMedia ? "media-without-url" : "none";
+      console.log(`[sticky] generating sticker for=${userId} reference=${referenceStatus}`);
+      const sticker = await this.generateSingleSticker(userId, userPrompt, sourceMedia);
       console.log(`[sticky] sticker generated for=${userId} url=${sticker.url}`);
       this.deps.state.update(userId, { state: "completed" });
 
@@ -189,9 +190,11 @@ export class StickyBot {
     }
   }
 
-  private async generateSingleSticker(userId: string, userPrompt: string): Promise<StoredSticker> {
+  private async generateSingleSticker(userId: string, userPrompt: string, sourceMedia?: InboundMedia): Promise<StoredSticker> {
     const prompt = this.deps.promptGenerator.buildOpenStickerPrompt(userPrompt);
-    const image = await this.deps.imageGeneration.generate(prompt);
+    const image = sourceMedia?.url
+      ? await this.generateImageFromReference(prompt, sourceMedia)
+      : await this.deps.imageGeneration.generate(prompt);
     const webp = await this.deps.stickerConversion.toWhatsAppSticker(image);
     const sticker = await this.deps.storage.saveSticker({
       userId,
@@ -203,6 +206,18 @@ export class StickyBot {
 
     await this.deps.storage.saveManifest(userId, [sticker]);
     return sticker;
+  }
+
+  private async generateImageFromReference(prompt: ReturnType<PromptGenerator["buildOpenStickerPrompt"]>, sourceMedia: InboundMedia) {
+    if (!sourceMedia.url) {
+      console.warn(`[sticky] source media has no downloadable url; using text-only generation. media_id=${sourceMedia.id ?? "missing"}`);
+      return this.deps.imageGeneration.generate(prompt);
+    }
+
+    console.log(`[sticky] downloading reference media kind=${sourceMedia.kind} url=${sourceMedia.url}`);
+    const reference = await this.deps.kapso.downloadMedia(sourceMedia.url);
+    console.log(`[sticky] reference media downloaded bytes=${reference.buffer.byteLength} mime=${reference.mimeType}`);
+    return this.deps.imageGeneration.generateWithReference(prompt, reference.buffer);
   }
 
   private async reply(

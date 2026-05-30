@@ -76,6 +76,23 @@ export class KapsoWhatsAppService {
     console.log(`[kapso] sent outbound sticker to=${to} status=${response.status}`);
   }
 
+  async downloadMedia(url: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const headers: Record<string, string> = {};
+    if (this.options.apiKey) {
+      headers["X-API-Key"] = this.options.apiKey;
+    }
+
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new Error(`Kapso media download failed: ${response.status} ${await response.text()}`);
+    }
+
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      mimeType: response.headers.get("content-type") || "application/octet-stream"
+    };
+  }
+
   private sendMessageUrl(): string {
     if (this.options.sendMessageUrl) {
       return this.options.sendMessageUrl;

@@ -43,6 +43,31 @@ export class ImageGenerationService {
     }
   }
 
+  async generateWithReference(stickerPrompt: StickerPrompt, referenceImage: Buffer): Promise<GeneratedImage> {
+    if (this.options.mode === "mock") {
+      return this.generateMockImage(stickerPrompt);
+    }
+
+    if (!this.options.apiKey) {
+      if (this.options.mode === "openai") {
+        throw new Error("OPENAI_API_KEY is required when IMAGE_GENERATION_MODE=openai.");
+      }
+
+      return this.generateMockImage(stickerPrompt);
+    }
+
+    try {
+      return await this.generateOpenAIImageEdit(stickerPrompt, referenceImage);
+    } catch (error) {
+      if (this.options.mode === "openai") {
+        throw error;
+      }
+
+      console.warn("OpenAI image edit failed. Falling back to local mock image.", error);
+      return this.generateMockImage(stickerPrompt);
+    }
+  }
+
   private async generateOpenAIImage(stickerPrompt: StickerPrompt): Promise<GeneratedImage> {
     const body: Record<string, unknown> = {
       model: this.options.model,
@@ -102,6 +127,73 @@ export class ImageGenerationService {
     }
 
     throw new Error("OpenAI image generation returned an unsupported response.");
+  }
+
+  private async generateOpenAIImageEdit(stickerPrompt: StickerPrompt, referenceImage: Buffer): Promise<GeneratedImage> {
+    const referencePng = await sharp(referenceImage, { animated: false })
+      .resize(1024, 1024, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      })
+      .png()
+      .toBuffer();
+
+    const body = new FormData();
+    body.append("model", this.options.model);
+    body.append("prompt", stickerPrompt.prompt);
+    body.append("size", "1024x1024");
+    body.append("n", "1");
+    if (this.options.model.includes("gpt-image")) {
+      body.append("background", "transparent");
+    }
+    const referenceArrayBuffer = referencePng.buffer.slice(
+      referencePng.byteOffset,
+      referencePng.byteOffset + referencePng.byteLength
+    ) as ArrayBuffer;
+    body.append("image", new Blob([referenceArrayBuffer], { type: "image/png" }), "reference.png");
+
+    const response = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`
+      },
+      body
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI image edit failed: ${response.status} ${await response.text()}`);
+    }
+
+    const payload = (await response.json()) as OpenAIImageResponse;
+    const image = payload.data?.[0];
+    if (!image) {
+      throw new Error("OpenAI image edit returned no image.");
+    }
+
+    if (image.b64_json) {
+      return {
+        phrase: stickerPrompt.phrase,
+        prompt: stickerPrompt.prompt,
+        buffer: Buffer.from(image.b64_json, "base64"),
+        mimeType: "image/png"
+      };
+    }
+
+    if (image.url) {
+      const imageResponse = await fetch(image.url);
+      if (!imageResponse.ok) {
+        throw new Error(`OpenAI edited image download failed: ${imageResponse.status} ${await imageResponse.text()}`);
+      }
+
+      return {
+        phrase: stickerPrompt.phrase,
+        prompt: stickerPrompt.prompt,
+        buffer: Buffer.from(await imageResponse.arrayBuffer()),
+        mimeType: imageResponse.headers.get("content-type") || "image/png"
+      };
+    }
+
+    throw new Error("OpenAI image edit returned an unsupported response.");
   }
 
   private async generateMockImage(stickerPrompt: StickerPrompt): Promise<GeneratedImage> {

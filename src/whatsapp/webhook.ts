@@ -19,7 +19,9 @@ export function createWhatsAppWebhookRouter(bot: StickyBot): Router {
   router.post("/webhooks/whatsapp", async (req: Request, res: Response) => {
     try {
       const incoming = normalizeIncomingWhatsAppMessage(req.body);
-      console.log(`[whatsapp] inbound from=${incoming.from} text=${JSON.stringify(incoming.text)}`);
+      console.log(
+        `[whatsapp] inbound from=${incoming.from} type=${incoming.messageType} text=${JSON.stringify(incoming.text)} media=${incoming.media ? JSON.stringify(incoming.media) : "none"}`
+      );
       const result = await bot.handleIncomingMessage(incoming);
       console.log(`[whatsapp] replies=${result.replies.length} stickers=${result.stickers.length} state=${result.conversation.state}`);
 

@@ -1,0 +1,5 @@
+{
+  "project-name": "Sticky",
+  "project-oneliner": "Create AI-powered WhatsApp stickers in seconds.",
+  "project-description": "Sticky is a WhatsApp-first bot that generates AI stickers for businesses and consumers. Send an open sticker request and Sticky creates a square sticker, converts it to WhatsApp-ready WebP, sends it back through Kapso, and returns a download link as backup. It can also turn your photos into stickers or edit existing ones, all from a WhatsApp chat with no app, signup, or landing page."
+}

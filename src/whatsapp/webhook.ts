@@ -19,7 +19,9 @@ export function createWhatsAppWebhookRouter(bot: StickyBot): Router {
   router.post("/webhooks/whatsapp", async (req: Request, res: Response) => {
     try {
       const incoming = normalizeIncomingWhatsAppMessage(req.body);
+      console.log(`[whatsapp] inbound from=${incoming.from} text=${JSON.stringify(incoming.text)}`);
       const result = await bot.handleIncomingMessage(incoming);
+      console.log(`[whatsapp] replies=${result.replies.length} stickers=${result.stickers.length} state=${result.conversation.state}`);
 
       res.json({
         ok: true,
@@ -30,6 +32,7 @@ export function createWhatsAppWebhookRouter(bot: StickyBot): Router {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown webhook error.";
       const status = message.includes("Missing") ? 400 : 500;
+      console.error(`[whatsapp] webhook failed: ${message}`, JSON.stringify(req.body));
       res.status(status).json({ ok: false, error: message });
     }
   });
@@ -39,14 +42,17 @@ export function createWhatsAppWebhookRouter(bot: StickyBot): Router {
 
 function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage {
   const payload = asRecord(body);
+  const eventData = asRecord(payload.data);
   const entry = asRecord(asArray(payload.entry)[0]);
   const change = asRecord(asArray(entry.changes)[0]);
   const value = asRecord(change.value);
   const metaMessage = asRecord(asArray(value.messages)[0]);
   const metaContact = asRecord(asArray(value.contacts)[0]);
-  const data = asRecord(payload.data);
+  const data = asRecord(eventData.data ?? payload.data);
   const message = asRecord(payload.message ?? data.message);
   const payloadMessage = asRecord(asRecord(payload.payload)?.message);
+  const kapso = asRecord(message.kapso);
+  const conversation = asRecord(payload.conversation ?? data.conversation ?? eventData.conversation);
 
   const from = firstString(
     payload.from,
@@ -54,13 +60,16 @@ function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage
     payload.phone,
     payload.wa_id,
     message.from,
+    message.from_user_id,
     message.sender,
     data.from,
     data.sender,
     data.phone,
     payloadMessage.from,
     metaMessage.from,
-    metaContact.wa_id
+    metaContact.wa_id,
+    conversation.phone_number,
+    conversation.business_scoped_user_id
   );
 
   const text = firstString(
@@ -70,6 +79,7 @@ function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage
     asRecord(payload.text)?.body,
     message.text,
     message.body,
+    kapso.content,
     asRecord(message.text)?.body,
     data.text,
     data.body,

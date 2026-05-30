@@ -12,6 +12,7 @@ export class KapsoWhatsAppService {
 
   async sendText(to: string, text: string): Promise<void> {
     if (!this.options.enabled) {
+      console.log(`[kapso] skipped outbound text to=${to} because KAPSO_ENABLED=false`);
       return;
     }
 
@@ -22,21 +23,24 @@ export class KapsoWhatsAppService {
     const response = await fetch(this.sendMessageUrl(), {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.options.apiKey}`,
+        "X-API-Key": this.options.apiKey,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        channel: "whatsapp",
+        messaging_product: "whatsapp",
         to,
-        from: this.options.whatsappFrom,
         type: "text",
-        text
+        text: {
+          body: text
+        }
       })
     });
 
     if (!response.ok) {
       throw new Error(`Kapso send-message failed: ${response.status} ${await response.text()}`);
     }
+
+    console.log(`[kapso] sent outbound text to=${to} status=${response.status}`);
   }
 
   private sendMessageUrl(): string {

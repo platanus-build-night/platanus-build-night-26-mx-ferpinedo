@@ -58,6 +58,22 @@ for (const reply of editResponse.replies) {
   console.log(`Bot: ${reply}`);
 }
 
+const imageFrom = "demo-image-user";
+console.log("User sends image with caption");
+const imageResponse = await bot.handleIncomingMessage({
+  from: imageFrom,
+  text: "Hazlo estilo cómic con fondo transparente",
+  messageType: "image",
+  media: {
+    kind: "image",
+    id: "demo-image-id",
+    caption: "Hazlo estilo cómic con fondo transparente"
+  }
+});
+for (const reply of imageResponse.replies) {
+  console.log(`Bot: ${reply}`);
+}
+
 console.log("User: Ponle lentes negros");
 editResponse = await bot.handleIncomingMessage({ from: editFrom, text: "Ponle lentes negros", messageType: "text" });
 for (const reply of editResponse.replies) {

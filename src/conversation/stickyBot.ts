@@ -30,7 +30,7 @@ export class StickyBot {
     }
 
     if (message.media) {
-      return this.handleMediaMessage(message.from, message.media);
+      return this.handleMediaMessage(message.from, message.media, text);
     }
 
     if (session.state === "waiting_for_edit_instructions") {
@@ -107,8 +107,12 @@ export class StickyBot {
     };
   }
 
-  private async handleMediaMessage(userId: string, media: InboundMedia): Promise<BotResponse> {
+  private async handleMediaMessage(userId: string, media: InboundMedia, text: string): Promise<BotResponse> {
     if (media.kind === "sticker") {
+      if (hasEnoughMediaInstruction(text) && !isUnsafeOrOffTopic(text)) {
+        return this.startMediaStickerGeneration(userId, media, text, "edit");
+      }
+
       const session = this.deps.state.update(userId, {
         sourceMedia: media,
         state: "waiting_for_edit_instructions"
@@ -118,6 +122,10 @@ export class StickyBot {
     }
 
     if (media.kind === "image") {
+      if (hasEnoughMediaInstruction(text) && !isUnsafeOrOffTopic(text)) {
+        return this.startMediaStickerGeneration(userId, media, text, "image");
+      }
+
       const session = this.deps.state.update(userId, {
         sourceMedia: media,
         state: "waiting_for_image_sticker_instructions"
@@ -149,15 +157,25 @@ export class StickyBot {
       return this.reply(userId, current, [reply]);
     }
 
-    const prompt = buildMediaPrompt(current.sourceMedia, text, mode);
+    return this.startMediaStickerGeneration(userId, current.sourceMedia, text, mode);
+  }
+
+  private async startMediaStickerGeneration(
+    userId: string,
+    sourceMedia: InboundMedia,
+    instructions: string,
+    mode: "edit" | "image"
+  ): Promise<BotResponse> {
+    const prompt = buildMediaPrompt(sourceMedia, instructions, mode);
     const session = this.deps.state.update(userId, {
       brandOrTheme: prompt,
+      sourceMedia,
       state: "generating_stickers"
     });
     const generatingReply = mode === "edit" ? "Estoy editando tu sticker." : "Estoy creando tu sticker con la imagen.";
     await this.sendText(userId, generatingReply);
 
-    void this.generateAndSendSingleSticker(userId, prompt, current.sourceMedia).catch((error) => {
+    void this.generateAndSendSingleSticker(userId, prompt, sourceMedia).catch((error) => {
       console.error("Sticker generation failed", error);
     });
 
@@ -323,7 +341,8 @@ function buildMediaPrompt(media: InboundMedia, instructions: string, mode: "edit
       "Edita el sticker de referencia y genera un nuevo sticker de WhatsApp.",
       source,
       `Cambios solicitados por el usuario: ${instructions}.`,
-      "Conserva la idea principal del sticker original cuando sea posible."
+      "Conserva la idea principal y el estilo visual del sticker original cuando sea posible.",
+      "No lo conviertas en caricatura, cómic, ilustración o meme a menos que el usuario lo pida explícitamente."
     ].join(" ");
   }
 
@@ -331,7 +350,9 @@ function buildMediaPrompt(media: InboundMedia, instructions: string, mode: "edit
     "Crea un sticker de WhatsApp usando la imagen de referencia del usuario.",
     source,
     `Indicaciones del usuario: ${instructions}.`,
-    "Usa la imagen como inspiración principal y conviértela en un sticker simple, legible y divertido."
+    "Usa la imagen como referencia principal y conserva su estilo visual salvo que el usuario pida explícitamente otro estilo.",
+    "No la conviertas en caricatura, cómic, ilustración o meme a menos que el usuario lo pida explícitamente.",
+    "Haz un sticker limpio, con fondo transparente o simple, y texto solo si el usuario lo pidió."
   ].join(" ");
 }
 

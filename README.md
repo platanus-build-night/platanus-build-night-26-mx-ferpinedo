@@ -87,6 +87,17 @@ Bot: Tu sticker está listo: <link>
 
 If the user asks unrelated questions or tries prompt injection, Sticky refuses and asks for a sticker description.
 
+## Edit Or Image Flow
+
+Sticky is prepared to receive incoming WhatsApp stickers and images from Kapso webhooks.
+
+- If the user sends a sticker, Sticky asks what changes to make.
+- If the user says `edita el siguiente sticker`, Sticky asks them to send the sticker first.
+- If the user sends an image/photo, Sticky asks what sticker to make with it.
+- If the user says they will send an image, Sticky asks them to upload it first.
+
+The current prototype stores the incoming media metadata and uses it in the generation prompt. A future image-editing implementation can replace the current text-to-image generation call with an image-editing call that uses the stored media URL or media ID.
+
 ## AI Image Generation
 
 By default, `IMAGE_GENERATION_MODE=auto`. If `OPENAI_API_KEY` is empty, Sticky creates local mock sticker images so the webhook flow still works.

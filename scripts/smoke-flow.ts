@@ -40,8 +40,26 @@ await storage.ensureOutputDir();
 
 for (const text of messages) {
   console.log(`User: ${text}`);
-  const response = await bot.handleIncomingMessage({ from, text });
+  const response = await bot.handleIncomingMessage({ from, text, messageType: "text" });
   for (const reply of response.replies) {
     console.log(`Bot: ${reply}`);
   }
+}
+
+const editFrom = "demo-edit-user";
+console.log("User sends sticker");
+let editResponse = await bot.handleIncomingMessage({
+  from: editFrom,
+  text: "",
+  messageType: "sticker",
+  media: { kind: "sticker", id: "demo-sticker-id" }
+});
+for (const reply of editResponse.replies) {
+  console.log(`Bot: ${reply}`);
+}
+
+console.log("User: Ponle lentes negros");
+editResponse = await bot.handleIncomingMessage({ from: editFrom, text: "Ponle lentes negros", messageType: "text" });
+for (const reply of editResponse.replies) {
+  console.log(`Bot: ${reply}`);
 }

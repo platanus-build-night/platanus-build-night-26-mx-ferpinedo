@@ -52,7 +52,12 @@ function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage
   const message = asRecord(payload.message ?? data.message);
   const payloadMessage = asRecord(asRecord(payload.payload)?.message);
   const kapso = asRecord(message.kapso);
+  const kapsoMediaData = asRecord(kapso.media_data);
+  const kapsoTypeData = asRecord(kapso.message_type_data);
   const conversation = asRecord(payload.conversation ?? data.conversation ?? eventData.conversation);
+  const messageType = firstString(payload.type, message.type, data.type, payloadMessage.type, metaMessage.type) ?? "text";
+  const mediaRecord = asRecord(message[messageType] ?? data[messageType] ?? payloadMessage[messageType] ?? metaMessage[messageType]);
+  const media = buildInboundMedia(messageType, mediaRecord, kapso, kapsoMediaData, kapsoTypeData);
 
   const from = firstString(
     payload.from,
@@ -79,8 +84,8 @@ function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage
     asRecord(payload.text)?.body,
     message.text,
     message.body,
-    kapso.content,
     asRecord(message.text)?.body,
+    media?.caption,
     data.text,
     data.body,
     asRecord(data.text)?.body,
@@ -89,7 +94,8 @@ function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage
     asRecord(metaMessage.text)?.body,
     asRecord(metaMessage.button)?.text,
     asRecord(asRecord(metaMessage.interactive)?.button_reply)?.title,
-    asRecord(asRecord(metaMessage.interactive)?.list_reply)?.title
+    asRecord(asRecord(metaMessage.interactive)?.list_reply)?.title,
+    media ? undefined : kapso.content
   );
 
   const messageId = firstString(payload.id, message.id, data.id, payloadMessage.id, metaMessage.id);
@@ -98,13 +104,15 @@ function normalizeIncomingWhatsAppMessage(body: unknown): InboundWhatsAppMessage
     throw new Error("Missing WhatsApp sender in webhook payload.");
   }
 
-  if (!text) {
-    throw new Error("Missing WhatsApp text message in webhook payload.");
+  if (!text && !media) {
+    throw new Error("Missing WhatsApp text or media message in webhook payload.");
   }
 
   return {
     from,
-    text,
+    text: text ?? "",
+    messageType,
+    media,
     messageId,
     raw: body
   };
@@ -130,4 +138,25 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function buildInboundMedia(
+  messageType: string,
+  mediaRecord: Record<string, unknown>,
+  kapso: Record<string, unknown>,
+  kapsoMediaData: Record<string, unknown>,
+  kapsoTypeData: Record<string, unknown>
+) {
+  if (!["image", "sticker", "video", "document"].includes(messageType)) {
+    return undefined;
+  }
+
+  return {
+    kind: messageType,
+    id: firstString(mediaRecord.id, kapso.media_id),
+    url: firstString(kapso.media_url, kapsoMediaData.url, mediaRecord.link, mediaRecord.url),
+    mimeType: firstString(kapsoMediaData.content_type, mediaRecord.mime_type),
+    filename: firstString(kapsoMediaData.filename, mediaRecord.filename),
+    caption: firstString(mediaRecord.caption, kapsoTypeData.caption)
+  };
 }

@@ -3,8 +3,21 @@ export type ConversationState =
   | "waiting_for_brand_or_theme"
   | "waiting_for_sticker_style"
   | "waiting_for_sticker_phrases"
+  | "waiting_for_sticker_to_edit"
+  | "waiting_for_edit_instructions"
+  | "waiting_for_image_to_sticker"
+  | "waiting_for_image_sticker_instructions"
   | "generating_stickers"
   | "completed";
+
+export interface InboundMedia {
+  kind: string;
+  id?: string;
+  url?: string;
+  mimeType?: string;
+  filename?: string;
+  caption?: string;
+}
 
 export interface ConversationSession {
   userId: string;
@@ -12,6 +25,7 @@ export interface ConversationSession {
   brandOrTheme?: string;
   style?: string;
   phrases?: string[];
+  sourceMedia?: InboundMedia;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +33,8 @@ export interface ConversationSession {
 export interface InboundWhatsAppMessage {
   from: string;
   text: string;
+  messageType: string;
+  media?: InboundMedia;
   messageId?: string;
   raw?: unknown;
 }

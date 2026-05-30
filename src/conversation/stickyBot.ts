@@ -4,7 +4,7 @@ import type { ImageGenerationService } from "../images/imageGenerationService.js
 import type { KapsoWhatsAppService } from "../kapso/kapsoWhatsAppService.js";
 import type { StickerConversionService } from "../stickers/stickerConversionService.js";
 import type { FileStorageService } from "../storage/fileStorageService.js";
-import type { BotResponse, ConversationSession, InboundWhatsAppMessage, StoredSticker } from "../types.js";
+import type { BotResponse, ConversationSession, InboundMedia, InboundWhatsAppMessage, StoredSticker } from "../types.js";
 
 interface StickyBotDependencies {
   state: ConversationStateManager;
@@ -27,6 +27,36 @@ export class StickyBot {
       return this.reply(message.from, this.deps.state.setState(message.from, "waiting_for_brand_or_theme"), [
         "Listo. Describe el sticker que quieres generar."
       ]);
+    }
+
+    if (message.media) {
+      return this.handleMediaMessage(message.from, message.media);
+    }
+
+    if (session.state === "waiting_for_edit_instructions") {
+      return this.handleStoredMediaInstructions(message.from, text, "edit");
+    }
+
+    if (session.state === "waiting_for_image_sticker_instructions") {
+      return this.handleStoredMediaInstructions(message.from, text, "image");
+    }
+
+    if (session.state === "waiting_for_sticker_to_edit") {
+      return this.reply(message.from, session, ["Mándame el sticker que quieres editar."]);
+    }
+
+    if (session.state === "waiting_for_image_to_sticker") {
+      return this.reply(message.from, session, ["Mándame la imagen o foto que quieres convertir en sticker."]);
+    }
+
+    if (isEditNextStickerIntent(text)) {
+      const updated = this.deps.state.update(message.from, { state: "waiting_for_sticker_to_edit" });
+      return this.reply(message.from, updated, ["Claro. Mándame el sticker que quieres editar."]);
+    }
+
+    if (isImageNextIntent(text)) {
+      const updated = this.deps.state.update(message.from, { state: "waiting_for_image_to_sticker" });
+      return this.reply(message.from, updated, ["Claro. Mándame la imagen o foto que quieres convertir en sticker."]);
     }
 
     switch (session.state) {
@@ -67,6 +97,67 @@ export class StickyBot {
     await this.sendText(userId, generatingReply);
 
     void this.generateAndSendSingleSticker(userId, text).catch((error) => {
+      console.error("Sticker generation failed", error);
+    });
+
+    return {
+      replies: [generatingReply],
+      stickers: [],
+      conversation: session
+    };
+  }
+
+  private async handleMediaMessage(userId: string, media: InboundMedia): Promise<BotResponse> {
+    if (media.kind === "sticker") {
+      const session = this.deps.state.update(userId, {
+        sourceMedia: media,
+        state: "waiting_for_edit_instructions"
+      });
+
+      return this.reply(userId, session, ["Recibí el sticker. ¿Qué cambios quieres que haga?"]);
+    }
+
+    if (media.kind === "image") {
+      const session = this.deps.state.update(userId, {
+        sourceMedia: media,
+        state: "waiting_for_image_sticker_instructions"
+      });
+
+      return this.reply(userId, session, ["Recibí la imagen. ¿Qué sticker quieres que haga con ella?"]);
+    }
+
+    const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
+    return this.reply(userId, session, ["Por ahora solo puedo trabajar con stickers o imágenes para crear stickers."]);
+  }
+
+  private async handleStoredMediaInstructions(userId: string, text: string, mode: "edit" | "image"): Promise<BotResponse> {
+    const current = this.deps.state.getOrCreate(userId);
+
+    if (!current.sourceMedia) {
+      const state = mode === "edit" ? "waiting_for_sticker_to_edit" : "waiting_for_image_to_sticker";
+      const session = this.deps.state.setState(userId, state);
+      const reply = mode === "edit" ? "Mándame el sticker que quieres editar." : "Mándame la imagen que quieres usar.";
+      return this.reply(userId, session, [reply]);
+    }
+
+    if (isUnsafeOrOffTopic(text)) {
+      return this.reply(userId, current, ["Solo puedo ayudarte a crear o editar stickers. Dime qué cambio visual quieres hacer."]);
+    }
+
+    if (!hasEnoughMediaInstruction(text)) {
+      const reply = mode === "edit" ? "¿Qué cambios quieres que haga al sticker?" : "¿Qué sticker quieres que haga con la imagen?";
+      return this.reply(userId, current, [reply]);
+    }
+
+    const prompt = buildMediaPrompt(current.sourceMedia, text, mode);
+    const session = this.deps.state.update(userId, {
+      brandOrTheme: prompt,
+      state: "generating_stickers"
+    });
+    const generatingReply = mode === "edit" ? "Estoy editando tu sticker." : "Estoy creando tu sticker con la imagen.";
+    await this.sendText(userId, generatingReply);
+
+    void this.generateAndSendSingleSticker(userId, prompt).catch((error) => {
       console.error("Sticker generation failed", error);
     });
 
@@ -152,6 +243,12 @@ function hasEnoughStickerDetail(text: string): boolean {
   return /sticker|stickers|calcomania|dibujo|logo|meme|texto|estilo|personaje|mascota/.test(normalized) && words.length >= 2;
 }
 
+function hasEnoughMediaInstruction(text: string): boolean {
+  const normalized = normalize(text);
+  const words = normalized.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && !/^(hola|hey|buenas|hi|hello)$/.test(normalized);
+}
+
 function isUnsafeOrOffTopic(text: string): boolean {
   const normalized = normalize(text);
   const promptInjection = [
@@ -191,6 +288,36 @@ function isUnsafeOrOffTopic(text: string): boolean {
   ];
 
   return unrelated.some((phrase) => normalized.includes(phrase));
+}
+
+function isEditNextStickerIntent(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(edita|editar|modifica|modificar|cambia|cambiar|arregla|retoca)\b/.test(normalized) && /\bsticker\b/.test(normalized);
+}
+
+function isImageNextIntent(text: string): boolean {
+  const normalized = normalize(text);
+  return /(imagen|foto|fotografia)/.test(normalized) && /(sticker|calcomania|convertir|hacer|crear|usar)/.test(normalized);
+}
+
+function buildMediaPrompt(media: InboundMedia, instructions: string, mode: "edit" | "image"): string {
+  const source = media.url ? `URL de referencia: ${media.url}.` : media.id ? `ID de media de referencia: ${media.id}.` : "Media de referencia recibida por WhatsApp.";
+
+  if (mode === "edit") {
+    return [
+      "Edita el sticker de referencia y genera un nuevo sticker de WhatsApp.",
+      source,
+      `Cambios solicitados por el usuario: ${instructions}.`,
+      "Conserva la idea principal del sticker original cuando sea posible."
+    ].join(" ");
+  }
+
+  return [
+    "Crea un sticker de WhatsApp usando la imagen de referencia del usuario.",
+    source,
+    `Indicaciones del usuario: ${instructions}.`,
+    "Usa la imagen como inspiración principal y conviértela en un sticker simple, legible y divertido."
+  ].join(" ");
 }
 
 function normalize(text: string): string {

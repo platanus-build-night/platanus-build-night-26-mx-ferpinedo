@@ -57,6 +57,12 @@ Run the full demo flow without external APIs:
 npm run smoke
 ```
 
+Run the HTTP e2e test suite:
+
+```bash
+npm run test:e2e
+```
+
 Generated `.webp` files are written to `generated/` and served from:
 
 ```text

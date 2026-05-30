@@ -135,7 +135,7 @@ export class StickyBot {
     }
 
     const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
-    return this.reply(userId, session, ["Por ahora solo puedo trabajar con stickers o imágenes para crear stickers."]);
+    return this.reply(userId, session, [unsupportedContentMessage()]);
   }
 
   private async handleStoredMediaInstructions(userId: string, text: string, mode: "edit" | "image"): Promise<BotResponse> {
@@ -354,6 +354,10 @@ function buildMediaPrompt(media: InboundMedia, instructions: string, mode: "edit
     "No la conviertas en caricatura, cómic, ilustración o meme a menos que el usuario lo pida explícitamente.",
     "Haz un sticker limpio, con fondo transparente o simple, y texto solo si el usuario lo pidió."
   ].join(" ");
+}
+
+function unsupportedContentMessage(): string {
+  return "Solo acepto texto, fotos/imágenes y stickers. No puedo procesar videos, audios, ubicaciones, documentos, contactos ni otros tipos de archivo o contenido.";
 }
 
 function normalize(text: string): string {

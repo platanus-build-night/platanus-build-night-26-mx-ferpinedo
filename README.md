@@ -87,6 +87,16 @@ Bot: Tu sticker está listo: <link>
 
 If the user asks unrelated questions or tries prompt injection, Sticky refuses and asks for a sticker description.
 
+## Supported WhatsApp Content
+
+Sticky only accepts:
+
+- Text messages
+- Photos/images
+- Stickers
+
+Sticky does not accept videos, audio/voice notes, locations, documents, contacts, or any other file/content type.
+
 ## Edit Or Image Flow
 
 Sticky is prepared to receive incoming WhatsApp stickers and images from Kapso webhooks.
@@ -95,8 +105,9 @@ Sticky is prepared to receive incoming WhatsApp stickers and images from Kapso w
 - If the user says `edita el siguiente sticker`, Sticky asks them to send the sticker first.
 - If the user sends an image/photo, Sticky asks what sticker to make with it.
 - If the user says they will send an image, Sticky asks them to upload it first.
+- If the user sends any unsupported content type, Sticky explains that only text, photos/images, and stickers are accepted.
 
-The current prototype stores the incoming media metadata and uses it in the generation prompt. A future image-editing implementation can replace the current text-to-image generation call with an image-editing call that uses the stored media URL or media ID.
+The current prototype stores incoming image/sticker metadata and uses downloadable media as visual reference when Kapso provides a media URL.
 
 ## AI Image Generation
 

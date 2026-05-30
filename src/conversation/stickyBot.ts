@@ -90,7 +90,6 @@ export class StickyBot {
         console.error(`Sticker send failed for ${sticker.url}`, error);
       }
 
-      await this.sendText(userId, `Tu sticker está listo: ${sticker.url}`);
       console.log(`[sticky] sticker flow completed for=${userId}`);
     } catch (error) {
       console.error("Sticker generation failed", error);

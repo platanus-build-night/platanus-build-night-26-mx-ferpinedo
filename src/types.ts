@@ -14,6 +14,7 @@ export interface InboundMedia {
   kind: string;
   id?: string;
   url?: string;
+  localFilePath?: string;
   mimeType?: string;
   filename?: string;
   caption?: string;

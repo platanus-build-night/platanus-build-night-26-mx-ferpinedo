@@ -12,9 +12,10 @@ const storage = new FileStorageService({
   outputDir: config.storageDir,
   publicFilesUrl: config.publicFilesUrl
 });
+const state = new ConversationStateManager();
 
 const bot = new StickyBot({
-  state: new ConversationStateManager(),
+  state,
   promptGenerator: new PromptGenerator(),
   imageGeneration: new ImageGenerationService({
     apiKey: undefined,
@@ -46,6 +47,14 @@ for (const text of messages) {
   }
 }
 
+await waitForCompleted(from);
+
+console.log("User: Ponle un sombrero rojo");
+const followUpResponse = await bot.handleIncomingMessage({ from, text: "Ponle un sombrero rojo", messageType: "text" });
+for (const reply of followUpResponse.replies) {
+  console.log(`Bot: ${reply}`);
+}
+
 const editFrom = "demo-edit-user";
 console.log("User sends sticker");
 let editResponse = await bot.handleIncomingMessage({
@@ -56,6 +65,20 @@ let editResponse = await bot.handleIncomingMessage({
 });
 for (const reply of editResponse.replies) {
   console.log(`Bot: ${reply}`);
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCompleted(userId: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (state.getOrCreate(userId).state === "completed") {
+      return;
+    }
+
+    await wait(250);
+  }
 }
 
 const imageFrom = "demo-image-user";

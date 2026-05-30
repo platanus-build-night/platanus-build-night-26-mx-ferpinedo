@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import type { PromptGenerator } from "../ai/promptGenerator.js";
 import type { ConversationStateManager } from "./stateManager.js";
 import type { ImageGenerationService } from "../images/imageGenerationService.js";
@@ -47,6 +48,10 @@ export class StickyBot {
 
     if (session.state === "waiting_for_image_to_sticker") {
       return this.reply(message.from, session, ["Mándame la imagen o foto que quieres convertir en sticker."]);
+    }
+
+    if (session.sourceMedia && (isFollowUpEditIntent(text) || isEditNextStickerIntent(text))) {
+      return this.startMediaStickerGeneration(message.from, session.sourceMedia, text, "edit");
     }
 
     if (isEditNextStickerIntent(text)) {
@@ -192,7 +197,16 @@ export class StickyBot {
       console.log(`[sticky] generating sticker for=${userId} reference=${referenceStatus}`);
       const sticker = await this.generateSingleSticker(userId, userPrompt, sourceMedia);
       console.log(`[sticky] sticker generated for=${userId} url=${sticker.url}`);
-      this.deps.state.update(userId, { state: "completed" });
+      this.deps.state.update(userId, {
+        state: "completed",
+        sourceMedia: {
+          kind: "sticker",
+          url: sticker.url,
+          localFilePath: sticker.filePath,
+          mimeType: "image/webp",
+          filename: sticker.fileName
+        }
+      });
 
       try {
         await this.deps.kapso.sendStickerLink(userId, sticker.url);
@@ -227,6 +241,12 @@ export class StickyBot {
   }
 
   private async generateImageFromReference(prompt: ReturnType<PromptGenerator["buildOpenStickerPrompt"]>, sourceMedia: InboundMedia) {
+    if (sourceMedia.localFilePath) {
+      console.log(`[sticky] loading local reference media path=${sourceMedia.localFilePath}`);
+      const reference = await fs.readFile(sourceMedia.localFilePath);
+      return this.deps.imageGeneration.generateWithReference(prompt, reference);
+    }
+
     if (!sourceMedia.url) {
       console.warn(`[sticky] source media has no downloadable url; using text-only generation. media_id=${sourceMedia.id ?? "missing"}`);
       return this.deps.imageGeneration.generate(prompt);
@@ -326,6 +346,17 @@ function isUnsafeOrOffTopic(text: string): boolean {
 function isEditNextStickerIntent(text: string): boolean {
   const normalized = normalize(text);
   return /\b(edita|editar|modifica|modificar|cambia|cambiar|arregla|retoca)\b/.test(normalized) && /\bsticker\b/.test(normalized);
+}
+
+function isFollowUpEditIntent(text: string): boolean {
+  const normalized = normalize(text);
+  if (!normalized) {
+    return false;
+  }
+
+  return /\b(ponle|pon|agrega|agregale|añade|anade|quitale|quita|cambia|cambiale|hazlo|hazla|vuelvelo|vuelvela|retoca|arregla|modifica|edita|mas|menos|otro|otra)\b/.test(
+    normalized
+  );
 }
 
 function isImageNextIntent(text: string): boolean {

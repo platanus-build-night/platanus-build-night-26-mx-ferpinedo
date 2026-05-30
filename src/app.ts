@@ -51,7 +51,7 @@ export function createApp(config: AppConfig) {
     res.json({ ok: true, service: "sticky" });
   });
 
-  app.use(createWhatsAppWebhookRouter(bot));
+  app.use(createWhatsAppWebhookRouter(bot, { blockedNumbers: config.blockedNumbers }));
 
   return {
     app,

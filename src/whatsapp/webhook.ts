@@ -1,10 +1,16 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { normalizePhoneNumber } from "../config.js";
 import type { StickyBot } from "../conversation/stickyBot.js";
 import type { InboundWhatsAppMessage } from "../types.js";
 
-export function createWhatsAppWebhookRouter(bot: StickyBot): Router {
+interface WhatsAppWebhookOptions {
+  blockedNumbers?: string[];
+}
+
+export function createWhatsAppWebhookRouter(bot: StickyBot, options: WhatsAppWebhookOptions = {}): Router {
   const router = Router();
+  const blockedNumbers = new Set(options.blockedNumbers ?? []);
 
   router.get("/webhooks/whatsapp", (req, res) => {
     const challenge = req.query["hub.challenge"] || req.query.challenge;
@@ -22,6 +28,13 @@ export function createWhatsAppWebhookRouter(bot: StickyBot): Router {
       console.log(
         `[whatsapp] inbound from=${incoming.from} type=${incoming.messageType} text=${JSON.stringify(incoming.text)} media=${incoming.media ? JSON.stringify(incoming.media) : "none"}`
       );
+
+      if (blockedNumbers.has(normalizePhoneNumber(incoming.from))) {
+        console.log(`[whatsapp] ignored blocked sender from=${incoming.from}`);
+        res.json({ ok: true, ignored: true, replies: [], stickers: [] });
+        return;
+      }
+
       const result = await bot.handleIncomingMessage(incoming);
       console.log(`[whatsapp] replies=${result.replies.length} stickers=${result.stickers.length} state=${result.conversation.state}`);
 

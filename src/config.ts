@@ -17,6 +17,7 @@ export interface AppConfig {
   kapsoSendMessagePath: string;
   kapsoSendMessageUrl?: string;
   kapsoWhatsAppFrom?: string;
+  blockedNumbers: string[];
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -39,8 +40,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     kapsoApiBaseUrl: trimTrailingSlash(env.KAPSO_API_BASE_URL || "https://api.kapso.ai"),
     kapsoSendMessagePath: env.KAPSO_SEND_MESSAGE_PATH || "/whatsapp/messages",
     kapsoSendMessageUrl: emptyToUndefined(env.KAPSO_SEND_MESSAGE_URL),
-    kapsoWhatsAppFrom: emptyToUndefined(env.KAPSO_WHATSAPP_FROM)
+    kapsoWhatsAppFrom: emptyToUndefined(env.KAPSO_WHATSAPP_FROM),
+    blockedNumbers: parseBlockedNumbers(env.BLOCKED_NUMBERS)
   };
+}
+
+// Parses a comma-separated list of phone numbers into normalized digit-only forms.
+// Mexican WhatsApp ids sometimes drop the "1" after country code 52, so we store both variants.
+function parseBlockedNumbers(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  const numbers = new Set<string>();
+  for (const entry of value.split(",")) {
+    const digits = normalizePhoneNumber(entry);
+    if (!digits) {
+      continue;
+    }
+
+    numbers.add(digits);
+    if (digits.startsWith("521") && digits.length === 13) {
+      numbers.add(`52${digits.slice(3)}`);
+    }
+  }
+
+  return [...numbers];
+}
+
+export function normalizePhoneNumber(value: string): string {
+  return value.replace(/\D/g, "");
 }
 
 function parseImageGenerationMode(value: string | undefined): ImageGenerationMode {

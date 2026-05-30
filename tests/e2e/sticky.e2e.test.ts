@@ -18,7 +18,8 @@ const config: AppConfig = {
   openAiImageModel: "gpt-image-1",
   kapsoEnabled: false,
   kapsoApiBaseUrl: "https://api.kapso.ai",
-  kapsoSendMessagePath: "/whatsapp/messages"
+  kapsoSendMessagePath: "/whatsapp/messages",
+  blockedNumbers: ["5215587069436", "525587069436"]
 };
 
 const { app, services } = createApp(config);
@@ -69,6 +70,16 @@ describe("Sticky WhatsApp bot e2e", () => {
     assert.equal(body.ok, true);
     assert.deepEqual(body.replies, [offTopicReply]);
     assert.equal(body.conversation.state, "waiting_for_brand_or_theme");
+  });
+
+  test("ignores blocked senders without replying", async () => {
+    const body = await postWebhook({ from: "+52 1 55 8706 9436", text: "Hazme un sticker" });
+
+    assert.equal(body.ok, true);
+    assert.equal(body.ignored, true);
+    assert.deepEqual(body.replies, []);
+    assert.deepEqual(body.stickers, []);
+    assert.equal(body.conversation, undefined);
   });
 
   test("generates one WhatsApp-ready sticker from an open prompt", async () => {

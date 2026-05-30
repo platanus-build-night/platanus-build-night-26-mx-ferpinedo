@@ -26,7 +26,7 @@ export class StickyBot {
     if (text.toLowerCase() === "restart" || text.toLowerCase() === "new") {
       this.deps.state.reset(message.from);
       return this.reply(message.from, this.deps.state.setState(message.from, "waiting_for_brand_or_theme"), [
-        "What brand or theme do you want stickers for?"
+        "¿Para qué marca o tema quieres los stickers?"
       ]);
     }
 
@@ -40,7 +40,7 @@ export class StickyBot {
       case "waiting_for_sticker_phrases":
         return this.handlePhrases(message.from, text);
       case "generating_stickers":
-        return this.reply(message.from, session, ["I am still generating your stickers. I will send the links here when they are ready."]);
+        return this.reply(message.from, session, ["Todavía estoy generando tus stickers. Te mando los links aquí cuando estén listos."]);
       case "completed":
         this.deps.state.reset(message.from);
         return this.handleInitialMessage(message.from);
@@ -49,40 +49,40 @@ export class StickyBot {
 
   private async handleInitialMessage(userId: string): Promise<BotResponse> {
     const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
-    return this.reply(userId, session, ["What brand or theme do you want stickers for?"]);
+    return this.reply(userId, session, ["¿Para qué marca o tema quieres los stickers?"]);
   }
 
   private async handleBrand(userId: string, text: string): Promise<BotResponse> {
     if (!text) {
       const session = this.deps.state.getOrCreate(userId);
-      return this.reply(userId, session, ["Please send the brand or theme for this sticker pack."]);
+      return this.reply(userId, session, ["Mándame la marca o el tema para este paquete de stickers."]);
     }
 
     const session = this.deps.state.update(userId, {
       brandOrTheme: text,
       state: "waiting_for_sticker_style"
     });
-    return this.reply(userId, session, ["What visual style do you want?"]);
+    return this.reply(userId, session, ["¿Qué estilo visual quieres?"]);
   }
 
   private async handleStyle(userId: string, text: string): Promise<BotResponse> {
     if (!text) {
       const session = this.deps.state.getOrCreate(userId);
-      return this.reply(userId, session, ["Please describe the visual style you want for the stickers."]);
+      return this.reply(userId, session, ["Descríbeme el estilo visual que quieres para los stickers."]);
     }
 
     const session = this.deps.state.update(userId, {
       style: text,
       state: "waiting_for_sticker_phrases"
     });
-    return this.reply(userId, session, ["Send me three sticker phrases separated by commas."]);
+    return this.reply(userId, session, ["Mándame tres frases para los stickers, separadas por comas."]);
   }
 
   private async handlePhrases(userId: string, text: string): Promise<BotResponse> {
     const phrases = parseStickerPhrases(text);
     if (phrases.length !== 3) {
       const session = this.deps.state.getOrCreate(userId);
-      return this.reply(userId, session, ["Please send exactly three sticker phrases separated by commas."]);
+      return this.reply(userId, session, ["Mándame exactamente tres frases separadas por comas."]);
     }
 
     let session = this.deps.state.update(userId, {
@@ -90,14 +90,22 @@ export class StickyBot {
       state: "generating_stickers"
     });
 
-    const generatingReply = "Generating your stickers.";
+    const generatingReply = "Estoy generando tus stickers.";
     await this.sendText(userId, generatingReply);
 
     try {
       const stickers = await this.generateStickerPack(userId, session);
       session = this.deps.state.update(userId, { state: "completed" });
       const links = stickers.map((sticker, index) => `${index + 1}. ${sticker.phrase}: ${sticker.url}`).join("\n");
-      const readyReply = `Your stickers are ready:\n${links}`;
+      const readyReply = `Tus stickers están listos:\n${links}`;
+
+      for (const sticker of stickers) {
+        try {
+          await this.deps.kapso.sendStickerLink(userId, sticker.url);
+        } catch (error) {
+          console.error(`Sticker send failed for ${sticker.url}`, error);
+        }
+      }
 
       await this.sendText(userId, readyReply);
 
@@ -109,7 +117,7 @@ export class StickyBot {
     } catch (error) {
       console.error("Sticker generation failed", error);
       session = this.deps.state.update(userId, { state: "waiting_for_sticker_phrases" });
-      const failureReply = "Something went wrong while generating the stickers. Please send the three phrases again to retry.";
+      const failureReply = "Algo salió mal al generar los stickers. Mándame otra vez las tres frases para intentarlo de nuevo.";
       await this.sendText(userId, failureReply);
 
       return {

@@ -1,5 +1,6 @@
 import { PromptGenerator } from "../src/ai/promptGenerator.js";
 import { loadConfig } from "../src/config.js";
+import { GenerationQueue } from "../src/conversation/generationQueue.js";
 import { ConversationStateManager } from "../src/conversation/stateManager.js";
 import { StickyBot } from "../src/conversation/stickyBot.js";
 import { ImageGenerationService } from "../src/images/imageGenerationService.js";
@@ -16,6 +17,7 @@ const state = new ConversationStateManager();
 
 const bot = new StickyBot({
   state,
+  generationQueue: new GenerationQueue(),
   promptGenerator: new PromptGenerator(),
   imageGeneration: new ImageGenerationService({
     apiKey: undefined,

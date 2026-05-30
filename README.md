@@ -103,6 +103,16 @@ Sticky only accepts:
 
 Sticky does not accept videos, audio/voice notes, locations, documents, contacts, or any other file/content type.
 
+## Demo Limits
+
+Sticky uses in-memory limits to protect OpenAI and Kapso credits during demos:
+
+- Maximum 3 sticker generations running at the same time.
+- Maximum 10 waiting jobs in the queue.
+- Maximum 2 accepted generations per WhatsApp contact every 10 minutes.
+
+If a request enters the queue, Sticky tells the user their queue position. If the queue is full, Sticky asks the user to wait a few minutes. If a contact reaches the free limit, Sticky asks them to contact `fer@quentli.com` for a premium version.
+
 ## Edit Or Image Flow
 
 Sticky is prepared to receive incoming WhatsApp stickers and images from Kapso webhooks.

@@ -1,6 +1,7 @@
 import express from "express";
 import { PromptGenerator } from "./ai/promptGenerator.js";
 import type { AppConfig } from "./config.js";
+import { GenerationQueue } from "./conversation/generationQueue.js";
 import { ConversationStateManager } from "./conversation/stateManager.js";
 import { StickyBot } from "./conversation/stickyBot.js";
 import { ImageGenerationService } from "./images/imageGenerationService.js";
@@ -11,6 +12,7 @@ import { createWhatsAppWebhookRouter } from "./whatsapp/webhook.js";
 
 export function createApp(config: AppConfig) {
   const state = new ConversationStateManager();
+  const generationQueue = new GenerationQueue();
   const promptGenerator = new PromptGenerator();
   const imageGeneration = new ImageGenerationService({
     apiKey: config.openAiApiKey,
@@ -33,6 +35,7 @@ export function createApp(config: AppConfig) {
 
   const bot = new StickyBot({
     state,
+    generationQueue,
     promptGenerator,
     imageGeneration,
     stickerConversion,
@@ -54,6 +57,7 @@ export function createApp(config: AppConfig) {
     app,
     services: {
       state,
+      generationQueue,
       promptGenerator,
       imageGeneration,
       stickerConversion,

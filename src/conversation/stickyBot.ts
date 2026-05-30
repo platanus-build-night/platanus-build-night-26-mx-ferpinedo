@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import type { PromptGenerator } from "../ai/promptGenerator.js";
+import type { GenerationQueue, GenerationQueueResult } from "./generationQueue.js";
 import type { ConversationStateManager } from "./stateManager.js";
 import type { ImageGenerationService } from "../images/imageGenerationService.js";
 import type { KapsoWhatsAppService } from "../kapso/kapsoWhatsAppService.js";
@@ -9,6 +10,7 @@ import type { BotResponse, ConversationSession, InboundMedia, InboundWhatsAppMes
 
 interface StickyBotDependencies {
   state: ConversationStateManager;
+  generationQueue: GenerationQueue;
   promptGenerator: PromptGenerator;
   imageGeneration: ImageGenerationService;
   stickerConversion: StickerConversionService;
@@ -26,7 +28,7 @@ export class StickyBot {
     if (text.toLowerCase() === "restart" || text.toLowerCase() === "new") {
       this.deps.state.reset(message.from);
       return this.reply(message.from, this.deps.state.setState(message.from, "waiting_for_brand_or_theme"), [
-        "Listo. Describe el sticker que quieres generar."
+        introMessage()
       ]);
     }
 
@@ -80,36 +82,27 @@ export class StickyBot {
     if (isUnsafeOrOffTopic(text)) {
       const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
       return this.reply(userId, session, [
-        "Solo puedo ayudar a crear stickers. Describe el sticker que quieres, por ejemplo: 'un taco feliz estilo meme con texto Hoy toca pastor'."
+        `Solo puedo ayudar a crear stickers. ${introMessage()}`
       ]);
     }
 
     if (!hasEnoughStickerDetail(text)) {
       const session = this.deps.state.setState(userId, "waiting_for_brand_or_theme");
       return this.reply(userId, session, [
-        "¿Cómo quieres el sticker? Dime el tema, estilo y texto si debe llevar texto."
+        introMessage()
       ]);
     }
 
-    const session = this.deps.state.update(userId, {
-      brandOrTheme: text,
-      style: undefined,
-      phrases: undefined,
-      state: "generating_stickers"
-    });
-
-    const generatingReply = "Estoy generando tu sticker.";
-    await this.sendText(userId, generatingReply);
-
-    void this.generateAndSendSingleSticker(userId, text).catch((error) => {
-      console.error("Sticker generation failed", error);
-    });
-
-    return {
-      replies: [generatingReply],
-      stickers: [],
-      conversation: session
-    };
+    return this.enqueueStickerGeneration(
+      userId,
+      {
+        brandOrTheme: text,
+        style: undefined,
+        phrases: undefined
+      },
+      () => this.generateAndSendSingleSticker(userId, text),
+      generatingMessage("generating")
+    );
   }
 
   private async handleMediaMessage(userId: string, media: InboundMedia, text: string): Promise<BotResponse> {
@@ -172,20 +165,49 @@ export class StickyBot {
     mode: "edit" | "image"
   ): Promise<BotResponse> {
     const prompt = buildMediaPrompt(sourceMedia, instructions, mode);
+    const generatingReply = mode === "edit" ? generatingMessage("editing") : generatingMessage("image");
+    return this.enqueueStickerGeneration(
+      userId,
+      {
+        brandOrTheme: prompt,
+        sourceMedia
+      },
+      () => this.generateAndSendSingleSticker(userId, prompt, sourceMedia),
+      generatingReply
+    );
+  }
+
+  private async enqueueStickerGeneration(
+    userId: string,
+    sessionPatch: Partial<Omit<ConversationSession, "userId" | "createdAt">>,
+    job: () => Promise<void>,
+    runningReply: string
+  ): Promise<BotResponse> {
+    const result = this.deps.generationQueue.enqueue(userId, job);
+    const current = this.deps.state.getOrCreate(userId);
+
+    if (result.status === "rate_limited") {
+      return this.reply(userId, current, [
+        "En la versión gratuita puedes crear hasta 2 stickers cada 10 minutos. Para recibir una versión premium escribe a fer@quentli.com."
+      ]);
+    }
+
+    if (result.status === "queue_full") {
+      return this.reply(userId, current, [
+        "En esta versión beta hay un límite de creación de stickers simultáneo. Por favor espera unos minutos e intenta más tarde."
+      ]);
+    }
+
     const session = this.deps.state.update(userId, {
-      brandOrTheme: prompt,
-      sourceMedia,
+      ...sessionPatch,
       state: "generating_stickers"
     });
-    const generatingReply = mode === "edit" ? "Estoy editando tu sticker." : "Estoy creando tu sticker con la imagen.";
-    await this.sendText(userId, generatingReply);
 
-    void this.generateAndSendSingleSticker(userId, prompt, sourceMedia).catch((error) => {
-      console.error("Sticker generation failed", error);
-    });
+    const reply = result.status === "queued" ? queuedReply(result) : runningReply;
+    await this.sendText(userId, reply);
 
     return {
-      replies: [generatingReply],
+      replies: [reply],
       stickers: [],
       conversation: session
     };
@@ -208,10 +230,16 @@ export class StickyBot {
         }
       });
 
+      let stickerSent = false;
       try {
         await this.deps.kapso.sendStickerLink(userId, sticker.url);
+        stickerSent = true;
       } catch (error) {
         console.error(`Sticker send failed for ${sticker.url}`, error);
+      }
+
+      if (stickerSent) {
+        await this.sendText(userId, "Si te gustó, compártelo con tus amigos: https://pine.do/do-a-sticker");
       }
 
       console.log(`[sticky] sticker flow completed for=${userId}`);
@@ -294,6 +322,28 @@ function hasEnoughStickerDetail(text: string): boolean {
   }
 
   return /sticker|stickers|calcomania|dibujo|logo|meme|texto|estilo|personaje|mascota/.test(normalized) && words.length >= 2;
+}
+
+function introMessage(): string {
+  return [
+    "Puedo crear stickers desde cero, convertir una foto en sticker o editar un sticker existente.",
+    "También puedes mandarme una imagen con instrucciones en el mismo mensaje.",
+    "Ejemplos: 'haz un sticker de mi perro con texto Firulais', 'convierte esta foto en sticker con fondo transparente', 'edita este sticker y ponle lentes negros'."
+  ].join(" ");
+}
+
+function generatingMessage(mode: "generating" | "editing" | "image"): string {
+  const action = {
+    generating: "Estoy generando tu sticker",
+    editing: "Estoy editando tu sticker",
+    image: "Estoy creando tu sticker con la imagen"
+  }[mode];
+
+  return `${action}. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.`;
+}
+
+function queuedReply(result: Extract<GenerationQueueResult, { status: "queued" }>): string {
+  return `Tu sticker entró a la cola en la posición ${result.position}. Te lo mando aquí cuando esté listo.`;
 }
 
 function hasEnoughMediaInstruction(text: string): boolean {

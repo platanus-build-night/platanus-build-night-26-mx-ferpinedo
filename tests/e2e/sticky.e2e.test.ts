@@ -24,6 +24,11 @@ const config: AppConfig = {
 const { app, services } = createApp(config);
 let server: Server;
 let baseUrl = "";
+const introReply =
+  "Puedo crear stickers desde cero, convertir una foto en sticker o editar un sticker existente. También puedes mandarme una imagen con instrucciones en el mismo mensaje. Ejemplos: 'haz un sticker de mi perro con texto Firulais', 'convierte esta foto en sticker con fondo transparente', 'edita este sticker y ponle lentes negros'.";
+const generatingReply = "Estoy generando tu sticker. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.";
+const editingReply = "Estoy editando tu sticker. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.";
+const imageReply = "Estoy creando tu sticker con la imagen. Puede tardar hasta 90 segundos en generarse. Gracias por tu paciencia.";
 
 describe("Sticky WhatsApp bot e2e", () => {
   before(async () => {
@@ -52,7 +57,7 @@ describe("Sticky WhatsApp bot e2e", () => {
     const body = await postWebhook({ from: "e2e-greeting", text: "Hola" });
 
     assert.equal(body.ok, true);
-    assert.deepEqual(body.replies, ["¿Cómo quieres el sticker? Dime el tema, estilo y texto si debe llevar texto."]);
+    assert.deepEqual(body.replies, [introReply]);
     assert.equal(body.conversation.state, "waiting_for_brand_or_theme");
   });
 
@@ -64,7 +69,7 @@ describe("Sticky WhatsApp bot e2e", () => {
     });
 
     assert.equal(body.ok, true);
-    assert.deepEqual(body.replies, ["Estoy generando tu sticker."]);
+    assert.deepEqual(body.replies, [generatingReply]);
     assert.equal(body.conversation.state, "generating_stickers");
 
     const completed = await waitForSession(userId, "completed");
@@ -83,7 +88,7 @@ describe("Sticky WhatsApp bot e2e", () => {
 
     const body = await postWebhook({ from: userId, text: "Ponle lentes negros" });
     assert.equal(body.ok, true);
-    assert.deepEqual(body.replies, ["Estoy editando tu sticker."]);
+    assert.deepEqual(body.replies, [editingReply]);
 
     const second = await waitForSession(userId, "completed", first.updatedAt);
     assert.equal(second.sourceMedia.kind, "sticker");
@@ -108,8 +113,62 @@ describe("Sticky WhatsApp bot e2e", () => {
     });
 
     assert.equal(body.ok, true);
-    assert.deepEqual(body.replies, ["Estoy creando tu sticker con la imagen."]);
+    assert.deepEqual(body.replies, [imageReply]);
     assert.equal(body.conversation.state, "generating_stickers");
+    await waitForSession(userId, "completed");
+  });
+
+  test("queues generations when all concurrent slots are busy", async () => {
+    const users = Array.from({ length: 4 }, (_, index) => `e2e-queue-${index + 1}`);
+    const results = await Promise.all(
+      users.map((userId) => postWebhook({ from: userId, text: `Hazme un sticker de estrella numero ${userId}` }))
+    );
+
+    const queued = results.filter((body) => body.replies[0].includes("entró a la cola"));
+    const running = results.filter((body) => body.replies[0] === generatingReply);
+
+    assert.equal(running.length, 3);
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0].replies[0], "Tu sticker entró a la cola en la posición 1. Te lo mando aquí cuando esté listo.");
+
+    await Promise.all(users.map((userId) => waitForSession(userId, "completed")));
+  });
+
+  test("rejects generations when beta queue is full", async () => {
+    const users = Array.from({ length: 14 }, (_, index) => `e2e-full-${index + 1}`);
+    const results = await Promise.all(
+      users.map((userId) => postWebhook({ from: userId, text: `Hazme un sticker beta prueba numero ${userId}` }))
+    );
+
+    const running = results.filter((body) => body.replies[0] === generatingReply);
+    const queued = results.filter((body) => body.replies[0].includes("entró a la cola"));
+    const rejected = results.filter((body) => body.replies[0].includes("límite de creación de stickers simultáneo"));
+
+    assert.equal(running.length, 3);
+    assert.equal(queued.length, 10);
+    assert.equal(rejected.length, 1);
+    assert.equal(
+      rejected[0].replies[0],
+      "En esta versión beta hay un límite de creación de stickers simultáneo. Por favor espera unos minutos e intenta más tarde."
+    );
+
+    const acceptedUsers = users.filter((_, index) => !results[index].replies[0].includes("límite de creación de stickers simultáneo"));
+    await Promise.all(acceptedUsers.map((userId) => waitForSession(userId, "completed")));
+  });
+
+  test("limits each contact to two generations every ten minutes", async () => {
+    const userId = "e2e-rate-limit";
+    await postWebhook({ from: userId, text: "Hazme un sticker de una pizza feliz" });
+    const first = await waitForSession(userId, "completed");
+
+    await postWebhook({ from: userId, text: "Ponle lentes" });
+    await waitForSession(userId, "completed", first.updatedAt);
+
+    const body = await postWebhook({ from: userId, text: "Ponle sombrero" });
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.replies, [
+      "En la versión gratuita puedes crear hasta 2 stickers cada 10 minutos. Para recibir una versión premium escribe a fer@quentli.com."
+    ]);
   });
 
   test("asks for edit instructions when a sticker arrives without text", async () => {

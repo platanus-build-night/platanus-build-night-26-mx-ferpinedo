@@ -4,6 +4,10 @@
   <img src="project-logo.png" alt="Sticky logo" width="320" />
 </p>
 
+<p align="center">
+  <strong>Try it:</strong> <a href="https://sticky.pine.do">sticky.pine.do</a>
+</p>
+
 Sticky is a WhatsApp-first bot prototype that generates AI stickers for businesses and consumers. A user sends an open sticker request, Sticky generates one square sticker, converts it to WhatsApp-ready WebP, sends it through Kapso, and returns a download link as backup.
 
 This project intentionally has no landing page, database, authentication, payments, analytics, or user accounts.
